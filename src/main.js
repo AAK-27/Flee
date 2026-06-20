@@ -1,4 +1,6 @@
 import Phaser from 'phaser';
+import { MainMenuScene } from './scenes/MainMenuScene';
+import { GameScene } from './scenes/GameScene';
 
 const config = {
   type: Phaser.AUTO,
@@ -8,50 +10,10 @@ const config = {
   physics: {
     default: 'arcade',
     arcade: {
-      debug:false
+      debug: false
     }
   },
-  scene: {
-    preload: preload,
-    create: create,
-    update: update
-  }
+  scene: [MainMenuScene, GameScene]
 };
 
 const game = new Phaser.Game(config);
-
-function preload()
-{
-  this.load.image('player_idle', 'assets/idle_front.png');
-}
-
-var player;
-
-function create()
-{
-  player = this.physics.add.sprite(100, 450, 'player_idle');
-  player.setCollideWorldBounds(true);
-}
-
-var cursors;
-
-function update()
-{
-  cursors = this.input.keyboard.createCursorKeys();
-  if (cursors.left.isDown)
-  {
-    player.setVelocityX(-160);
-  }
-  else if (cursors.right.isDown)
-  {
-    player.setVelocityX(160);
-  }
-  else if (cursors.up.isDown)
-  {
-    player.setVelocityY(-160);
-  }
-  else if (cursors.down.isDown)
-  {
-    player.setVelocityY(160);
-  }
-}
