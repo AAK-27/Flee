@@ -1,22 +1,23 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>Flee!</title>
-    <style>
-      body {
-            margin: 0;
-            background: #000;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
+    <head>
+        <meta charset="utf-8" />
+        <script
+            src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js"
+            integrity="sha512-zhHQR0/H5SEBL3Wn6yYSaTTZej12z0hVZKOv3TwCUXT1z5qeqGcXJLLrbERYRScEDDpYIJhPC1fk31gqR783iQ=="
+            crossorigin="anonymous"
+            defer>
+        </script>
+        <script src="matrix.js" type="module"></script>
+        <script src="main.js" type="module"></script>
+        <style>
+            html, body {
+                background-color: rgb(25, 25, 25);
+                margin: 0;
             }
-      #game-container { margin: 0 auto; }
-    </style>
-  </head>
-  <body>
-    <div id="game-container"></div>
-    <script type="module" src="/src/main.js"></script>
-  </body>
+        </style>
+    </head>
+    <body>
+        <canvas id="gl-canvas" width="800" height="500"></canvas>
+    </body>
 </html>
