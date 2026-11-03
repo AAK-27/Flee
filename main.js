@@ -56,6 +56,9 @@ class Player {
         if (this.nextDirY === -this.dirY && this.nextDirY !== 0) return null;
 
         if (this.nextDirX != 0) { // If the next direction is in the x-axis...
+            // TODO: First find the row at which the player can turn (if they are halfway past a row they can't turn in that row anymore)
+            // let turnY = this.getScreenCoordsFromGrid(this.gridX, this.gridY)[1];
+            // if ((this.y - turnY) * this.dirY )
             let gridNextTargetX = this.gridX;
             const row = this.level[this.gridY];
             // Check for walls in the current row in that direction
@@ -470,6 +473,8 @@ function main() {
                         player.nextDirX = 0;
                         player.nextDirY = 1;
                         break;
+                    case 'Escape':
+                        return levelSelectScene;
                 }
             }
             return levelScene;
@@ -489,15 +494,18 @@ function main() {
             })
             .then(levelText => {
                 console.log(levelText);
-                const rows = levelText.split('\n');
+                let rows = levelText.split('\n');
+                rows.forEach((row, y) => {
+                    rows[y] = row.trimEnd();
+                });
                 levelScene.level = rows;
                 // Load the textures for the level
-                const wallTexture = loadTexture(gl, 'brick-wall.png');
+                const wallTexture = loadTexture(gl, 'level-spritesheet.png');
                 const floorTexture = loadTexture(gl, 'dirt-floor.png');
                 // Calculate scaling for the level
                 const tileSize = Math.min(canvas.width / (rows[0].length), canvas.height / rows.length);
                 const xOffset = (canvas.width - tileSize * rows[0].length) / 2;
-                const yOffset = (canvas.height - tileSize * rows.length) / 2;
+                const yOffset = (canvas.height - tileSize * rows.length) / 2 + tileSize/2;
                 levelScene.gridXOffset = xOffset;
                 levelScene.gridYOffset = yOffset + 8;
                 levelScene.gridSize = tileSize;
@@ -505,6 +513,7 @@ function main() {
                     for (let x = 0; x < rows[y].length; x++) {
                         switch (rows[y].charAt(x)) {
                             case ('#'): { // Walls
+                                const [texCoords, flip] = matchWallSprite(getNeighborTiles(rows, x, y));
                                 levelScene.objects.push({
                                     gridX: x,
                                     gridY: y,
@@ -513,13 +522,13 @@ function main() {
                                         return {
                                             programInfo: programInfo,
                                             buffers: buffers,
-                                            x: x*tileSize + xOffset,
-                                            y: y*tileSize + yOffset - tileSize / 32 * 16,
-                                            width: tileSize,
-                                            height: tileSize / 32 * 48,
+                                            x: Math.ceil(x*tileSize + xOffset + (flip ? tileSize : 0)),
+                                            y: Math.ceil(y*tileSize + yOffset - tileSize / 32 * 16),
+                                            width: Math.ceil(flip? -tileSize : tileSize),
+                                            height: Math.ceil(tileSize / 32 * 48),
                                             texture: wallTexture,
-                                            uTexScale: [1, 1],
-                                            uTexOffset: [0, 0],
+                                            uTexScale: [ 32 / wallTexture.width, 48 / wallTexture.height ],
+                                            uTexOffset: [ 32 / wallTexture.width * texCoords[0], 48 / wallTexture.height * texCoords[1]],
                                             layer: 1, // Walls render on the layer above floors
                                         }
                                     }
@@ -554,6 +563,50 @@ function main() {
                                 player.setGrid(xOffset, yOffset, tileSize)
                                 levelScene.objects.push(player);
                                 // Add the floor tile under the player
+                                levelScene.objects.push({
+                                    gridX: x,
+                                    gridY: y,
+                                    solid: false,
+                                    createDrawable(time) {
+                                        return {
+                                            programInfo: programInfo,
+                                            buffers: buffers,
+                                            x: x*tileSize + xOffset,
+                                            y: y*tileSize + yOffset,
+                                            width: tileSize,
+                                            height: tileSize,
+                                            texture: floorTexture,
+                                            uTexScale: [1, 1],
+                                            uTexOffset: [0, 0],
+                                            layer: 0,
+                                        }
+                                    }
+                                });
+                                break;
+                            } case ('E'): { // Exit point
+                                // Add the floor tile under the exit
+                                levelScene.objects.push({
+                                    gridX: x,
+                                    gridY: y,
+                                    solid: false,
+                                    createDrawable(time) {
+                                        return {
+                                            programInfo: programInfo,
+                                            buffers: buffers,
+                                            x: x*tileSize + xOffset,
+                                            y: y*tileSize + yOffset,
+                                            width: tileSize,
+                                            height: tileSize,
+                                            texture: floorTexture,
+                                            uTexScale: [1, 1],
+                                            uTexOffset: [0, 0],
+                                            layer: 0,
+                                        }
+                                    }
+                                });
+                                break;
+                            } case ('X'): { // Trap
+                                // Add the floor tile under the trap
                                 levelScene.objects.push({
                                     gridX: x,
                                     gridY: y,
@@ -708,6 +761,176 @@ function loadTexture(gl, url) {
 
 function isPowerOf2(value) {
     return (value & (value - 1)) === 0;
+}
+
+function getNeighborTiles(level, x, y) {
+    // Return a string of 9 tiles representing the 3x3 area of tiles around the given coordinate
+    let tiles = "";
+    const centerTile = level[y].charAt(x);
+    for (let locY = y - 1; locY <= y + 1; locY++) {
+        let row = "";
+        for (let locX = x - 1; locX <= x + 1; locX++) {
+            if (locY < 0 || locY >= level.length || locX < 0 || locX >= level[0].length) {
+                row = row.concat(centerTile);
+            } else {
+                const tile = level[locY].charAt(locX);
+                if (tile == 'S' || tile == 'E' || tile == 'X') {
+                    row = row.concat('_');
+                } else {
+                    row = row.concat(tile);
+                }
+            }
+        }
+        tiles = tiles.concat(row);
+    }
+    return tiles;
+}
+
+function matchWallSprite(neighborTiles) {
+    // Take the string of 9 tiles in a 3x3 around the target tile and return the
+    // corresponding texture coordinates for that wall, and a boolean if it needs
+    // to be flipped
+    switch (neighborTiles) {
+        // #### BASIC OUTER WALLS ####
+        // Top left outer wall
+        case (`########_`):
+            return [[0, 0], false];
+        // Top outer wall
+        case (`######___`):
+        case (`#######__`):
+        case (`######__#`):
+        case (`#######_#`):
+            return [[1, 0], false];
+        // Top right outer wall
+        case (`######_##`):
+            return [[2, 0], false];
+        // Outer right wall
+        case (`###_##_##`):
+        case (`_##_##_##`):
+        case (`_##_#####`):
+        case (`###_#####`):
+            return [[2, 1], false];
+        // Outer bottom right corner
+        case (`_########`):
+            return [[2, 2], false];
+        // Outer bottom edge
+        case (`___######`):
+        case (`#_#######`):
+        case (`#__######`):
+        case (`__#######`):
+            return [[1, 2], false];
+        // Outer bottom left corner
+        case (`##_######`):
+            return [[0, 2], false];
+        // Outer left wall
+        case (`##_##_##_`):
+        case (`#####_##_`):
+        case (`##_##_###`):
+        case (`#####_###`):
+            return [[0, 1], false];
+
+        // #### STANDALONE COLUMN ####
+        // Standalone column
+        case (`____#____`):
+            return [[1, 1], false];
+        
+        // #### VERTICAL WALLS ####
+        // Upper wall cap
+        case (`____#__#_`):
+        case (`____#__##`):
+        case (`____#_##_`):
+        case (`____#_###`):
+            return [[3, 0], false];
+        // Vertical wall
+        case (`_#__#__#_`):
+        case (`##__#__##`):
+        case (`##__#__#_`):
+        case (`###_#__#_`):
+        case (`_#__#_###`):
+            return [[3, 1], false];
+        // Lower wall cap
+        case (`_#__#____`):
+        case (`##__#____`):
+        case (`_##_#____`):
+        case (`###_#____`):
+            return [[3, 2], false];
+        
+        // #### HORIZONTAL WALLS ####
+        // Left wall cap
+        case (`____##___`):
+            return [[0, 3], false];
+        // Horizontal wall
+        case (`___###___`):
+        case (`#__####__`):
+        case (`__####__#`):
+        case (`#_####___`):
+            return [[1, 3], false];
+        // Right wall cap
+        case (`___##____`):
+            return [[2, 3], false];
+        
+        // #### INNER WALL JUNCTIONS ####
+        // Inner top left turn
+        case (`____##_#_`):
+            return [[4, 0], false];
+        // Inner top T junction
+        case (`___###_#_`):
+            return [[5, 0], false];
+        // Inner top right turn
+        case (`___##__#_`):
+            return [[6, 0], false];
+        // Inner left T junction
+        case (`_#__##_#_`):
+            return [[4, 1], false];
+        // Inner plus junction
+        case (`_#_###_#_`):
+            return [[5, 1], false];
+        // Inner right T junction
+        case (`_#_##__#_`):
+            return [[6, 1], false];
+        // Inner bottom left turn
+        case (`_#__##___`):
+            return [[4, 2], false];
+        // Inner bottom T junction
+        case (`_#_###___`):
+            return [[5, 2], false];
+        // Inner bottom right turn
+        case (`_#_##____`):
+            return [[6, 2], false];
+        
+        // #### DENSE CORNERS ####
+        // Top left corner
+        case (`____##_##`):
+            return [[3, 3], false];
+        // Top right corner
+        case (`___##_##_`):
+            return [[7, 0], false];
+        // Bottom left corner
+        case (`_##_##___`):
+            return [[7, 3], false];
+        // Bottom right corner
+        case (`##_##____`):
+            return [[6, 3], false];
+
+        // #### OUTER WALL JUNCTIONS ####
+        // Outer left T junction
+        case (`##_#####_`):
+            return [[7, 1], false];
+        // Outer top T junction
+        case (`######_#_`):
+            return [[5, 3], false];
+        // Outer right T junction
+        case (`_#####_##`):
+            return [[7, 2], false];
+        // Outer bottom T junction
+        case (`_#_######`):
+            return [[4, 3], false];
+        
+        // #### DEFAULT CASE ####
+        default:
+            // Standalone column
+            return [[1, 1], false];
+    }
 }
 
 // function cropImage(imgSrc, cropX, cropY, cropWidth, cropHeight) {
