@@ -307,7 +307,7 @@ function main() {
     const player = new Player(
         gl, programInfo, buffers,
         0, 0, 32,
-        "./runner-spritesheet.png", {
+        "resources/textures/runner-spritesheet.png", {
             size: 32,
             animations: [
                 {
@@ -358,7 +358,7 @@ function main() {
         objects: []
     };
     // Add the title art
-    const titleArt = loadTexture(gl, "./title-art.png");
+    const titleArt = loadTexture(gl, "resources/textures/title-art.png");
     titleScene.objects.push({
         createDrawable(time) {
             const scale = Math.min(canvas.width / titleArt.width, canvas.height / titleArt.height);
@@ -410,7 +410,7 @@ function main() {
         objects: [] // Array to hold all objects in the scene
     };
     // Add the level selection background art
-    const levelSelectionArt = loadTexture(gl, "./title-art.png");
+    const levelSelectionArt = loadTexture(gl, "resources/textures/title-art.png");
     levelSelectScene.objects.push({
         createDrawable(time) {
             const scale = Math.min(canvas.width / levelSelectionArt.width, canvas.height / levelSelectionArt.height);
@@ -500,8 +500,8 @@ function main() {
                 });
                 levelScene.level = rows;
                 // Load the textures for the level
-                const wallTexture = loadTexture(gl, 'level-spritesheet.png');
-                const floorTexture = loadTexture(gl, 'dirt-floor.png');
+                const wallTexture = loadTexture(gl, 'resources/textures/brick-wall-spritesheet.png');
+                const floorTexture = loadTexture(gl, 'resources/textures/dirt-floor.png');
                 // Calculate scaling for the level
                 const tileSize = Math.min(canvas.width / (rows[0].length), canvas.height / rows.length);
                 const xOffset = (canvas.width - tileSize * rows[0].length) / 2;
@@ -932,48 +932,3 @@ function matchWallSprite(neighborTiles) {
             return [[1, 1], false];
     }
 }
-
-// function cropImage(imgSrc, cropX, cropY, cropWidth, cropHeight) {
-//     return new Promise((resolve) => {
-//         const image = new Image();
-//         image.src = imgSrc;
-
-//         image.onload = () => {
-//             const canvas = document.createElement('canvas');
-//             canvas.width = cropWidth;
-//             canvas.height = cropHeight;
-//             const ctx = canvas.getContext('2d');
-
-//             ctx.drawImage(
-//                 image,
-//                 cropX, cropY, cropWidth, cropHeight,
-//                 0, 0, cropWidth, cropHeight
-//             );
-
-//             resolve(canvas.toDataURL('image/png'));
-//         }
-//     });
-// }
-
-// loadSpritesheet(spritePath, spriteInfo) {
-//     const spriteSheet = new Image();
-//     spriteSheet.src = spritePath;
-//     spriteSheet.onload = () => {
-//         const spriteSize, spriteKeys = spriteInfo;
-//         this.animations = {};
-//         for (let i = 0; i < spriteKeys.length; i++) {
-//             const key, fps, numFrames = spriteKeys;
-//             this.animations[key] = {
-//                 fps: fps,
-//                 numFrames: numFrames,
-//                 frames: [],
-//             }
-//             for (let j = 0; j < numFrames; j++) {
-//                 const dataURL = cropImage(spriteSheet, j * spriteSize, i * spriteSize, spriteSize, spriteSize);
-//                 this.animations[key].frames.push(dataURL);
-//             }
-//         }
-        
-//         return this.animations;
-//     }
-// }
