@@ -1,3 +1,8 @@
+# Flee Stuff
+*.kra
+*.kra~
+*.png~
+
 # Logs
 logs
 *.log
