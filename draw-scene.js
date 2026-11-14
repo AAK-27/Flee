@@ -1,4 +1,4 @@
-function drawScene(gl, canvas, scene, time) {
+function drawScene(gl, canvas, scene, deltaTime, time) {
     gl.clearColor(0.0, 0.0, 0.0, 1.0);
     gl.clearDepth(1.0);
     gl.enable(gl.DEPTH_TEST);
@@ -12,13 +12,13 @@ function drawScene(gl, canvas, scene, time) {
 
     if (scene.useLayers) {
         // This is only for the level scene to ensure objects are rendered in the correct order
-        const drawables = scene.objects.map(obj => obj.createDrawable(time));
+        const drawables = scene.objects.map(obj => obj.createDrawable(deltaTime, time));
         drawables.sort((a, b) => a.layer - b.layer);
         drawables.forEach(d => drawObject(gl, projectionMatrix, d));
     } else {
         // Otherwise they are rendered in the order they were added to the scene
         scene.objects.forEach(gameObject => {
-            drawObject(gl, projectionMatrix, gameObject.createDrawable(time));
+            drawObject(gl, projectionMatrix, gameObject.createDrawable(deltaTime, time));
         });
     }
 }
