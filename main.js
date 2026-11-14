@@ -21,6 +21,8 @@ class Player {
         this.animations = {};
         this.spriteSize = spriteInfo.size;
         this.flip = false;
+        this.spriteXOffset = 0;
+        this.spriteYOffset = 0;
         this.gridXOffset = 0;
         this.gridYOffset = 0;
         this.gridSize = this.size;
@@ -44,14 +46,14 @@ class Player {
         this.gridXOffset = gridXOffset;
         this.gridYOffset = gridYOffset;
         this.gridSize = gridSize;
-        this.velocity = this.size*2; // Set speed to 2 tiles per second
+        this.spriteYOffset = -gridSize * 0.75;
+        this.velocity = this.size*4; // Set speed to 4 tiles per second
     }
 
-    // The player's logical probe point is (this.x + size/2, this.y + 0.75*size),
-    // accounting for the 3/4 perspective visual offset on Y.
     updateGridCoords() {
+        // Update the grid coordinates based on the center pixel coordinates of the player
         this.gridX = Math.floor((this.x + this.size / 2 - this.gridXOffset) / this.gridSize);
-        this.gridY = Math.floor((this.y + 0.75 * this.size - this.gridYOffset) / this.gridSize);
+        this.gridY = Math.floor((this.y + this.size / 2 - this.gridYOffset) / this.gridSize);
     }
 
     getScreenCoordsFromGrid(gridX, gridY) {
@@ -71,42 +73,40 @@ class Player {
 
     tryMove(deltaTime) {
         this.dirUpdated = false; // Flag to only allow one direction change per frame
-        // If direction is 0, 0 then update it to next direction
+        // If direction is empty and a next direction is quequed then update it to next direction
         if (this.dirX === 0 && this.dirY === 0 && (this.nextDirX !== 0 || this.nextDirY !== 0)) {
             this.dirX = this.nextDirX;
             this.dirY = this.nextDirY;
             // Reset the next direction
             this.nextDirX = 0;
             this.nextDirY = 0;
+            // Update the animation since the direction changed
             this.updateAnimation();
+            // Set the flag to prevent a second direction change in the same frame
             this.dirUpdated = true;
         }
 
+        // If the level is loaded and the player is moving in some direction
         if (this.level && (this.dirX != 0 || this.dirY != 0)) {
             const inset = HITBOX_INSET;
-            // Update position as a function of time
+            // Update the position as a function of time
             const nextPosX = this.x + this.dirX * this.velocity * deltaTime;
             const nextPosY = this.y + this.dirY * this.velocity * deltaTime;
 
-            // Leading edge probe: the point just inside the tile boundary in the direction of travel.
-            // For X: probe the leading horizontal edge inset from the sprite edge.
-            // For Y: probe using the 0.75*size feet offset, inset from the boundary.
+            // Leading edge probe: the point just inside the tile boundary in the direction of travel
             const probeX = this.dirX === 1  ? nextPosX + this.size - inset
                          : this.dirX === -1 ? nextPosX + inset
                          : nextPosX + this.size / 2;
-            // Moving up: probe the feet point (y + 0.75*size) inset from above.
-            // Moving down: probe the bottom edge of the sprite plus the visual offset,
-            // inset from the boundary. The sprite sits 0.75*size above the grid so
-            // its bottom edge maps to nextPosY + size + 0.75*size in grid space.
-            const probeY = this.dirY === 1
-                         ? nextPosY + this.size + 0.75 * this.size - inset
-                         : nextPosY + 0.75 * this.size - inset;
+            const probeY = this.dirY === 1  ? nextPosY + this.size - inset
+                         : this.dirY === -1 ? nextPosY + inset
+                         : nextPosY + this.size / 2;
+            // Find the grid coordinates of the tile the player will enter
             const nextGridX = Math.floor((probeX - this.gridXOffset) / this.gridSize);
             const nextGridY = Math.floor((probeY - this.gridYOffset) / this.gridSize);
 
             const attemptMoveForward = () => {
                 if (this.level[nextGridY] && this.level[nextGridY].charAt(nextGridX) === '#') {
-                    // If the player runs into a wall
+                    // If the player runs into a wall,
                     // Snap to the tile boundary before the wall
                     if (this.dirX === 1) {
                         this.x = nextGridX * this.gridSize + this.gridXOffset - this.size + inset;
@@ -116,16 +116,17 @@ class Player {
                         this.flip = true;
                         this.animation = "idle-side";
                     } else if (this.dirY === 1) {
-                        this.y = nextGridY * this.gridSize + this.gridYOffset - this.size - 0.75 * this.size + inset;
+                        this.y = nextGridY * this.gridSize + this.gridYOffset - this.size + inset;
                         this.animation = "idle-forward";
                     } else if (this.dirY === -1) {
-                        this.y = nextGridY * this.gridSize + this.gridYOffset + this.gridSize - 0.75 * this.size + inset;
+                        this.y = (nextGridY + 1) * this.gridSize + this.gridYOffset - inset;
                         this.animation = "idle-backward";
                     }
                     // Stop the player
                     this.dirX = 0;
                     this.dirY = 0;
                 } else {
+                    // Just move the player forward in the direction they are facing
                     this.x = nextPosX;
                     this.y = nextPosY;
                 }
@@ -140,24 +141,16 @@ class Player {
 
             // Try to turn or else just move forward
             if ((this.nextDirX != 0 || this.nextDirY != 0) && !this.dirUpdated) {
-                // Alignment check: the player can turn on the current tile if it passes
-                // through the tile center this frame. The tile center in screen coords is
-                // the tile top-left + half a tile.
-                const tileCenterX = this.gridX * this.gridSize + this.gridXOffset + this.gridSize / 2;
-                // For Y the player's reference point is the feet (y + 0.75*size),
-                // so the tile center for alignment is the tile top + half a tile.
-                const tileCenterY = this.gridY * this.gridSize + this.gridYOffset + this.gridSize / 2;
+                // The player can only turn on the current tile if it passes through the center of the tile in this frame
+                // Which is the same as if the player's top right corner passes the tile's top right corner
+                const tileX = this.gridX * this.gridSize + this.gridXOffset;
+                const tileY = this.gridY * this.gridSize + this.gridYOffset;
 
-                // Current and next feet/center positions for range checks
-                const curFeetY = this.y + 0.75 * this.size;
-                const nextFeetY = nextPosY + 0.75 * this.size;
-                const curCenterX = this.x + this.size / 2;
-                const nextCenterX = nextPosX + this.size / 2;
-
+                // If the player is attempting to turn vertically
                 if (this.nextDirY != 0 &&
-                    (this.dirX > 0 && inRange(tileCenterX, curCenterX, nextCenterX) ||
-                     this.dirX < 0 && inRange(tileCenterX, nextCenterX, curCenterX))) {
-                    // Turning vertically: check the tile above/below in the current column
+                    (this.dirX > 0 && inRange(tileX, this.x, nextPosX) ||
+                     this.dirX < 0 && inRange(tileX, nextPosX, this.x))) {
+                    // Check the tile above/below in the current column
                     if (this.level[this.gridY + this.nextDirY] &&
                         this.level[this.gridY + this.nextDirY].charAt(this.gridX) === '#') {
                         attemptMoveForward();
@@ -168,12 +161,14 @@ class Player {
                         this.nextDirY = 0;
                         this.updateAnimation();
                         // Snap center X to tile center
-                        this.x = tileCenterX - this.size / 2;
+                        this.x = tileX + inset;
                     }
-                } else if (this.nextDirX != 0 &&
-                    (this.dirY > 0 && inRange(tileCenterY, curFeetY, nextFeetY) ||
-                     this.dirY < 0 && inRange(tileCenterY, nextFeetY, curFeetY))) {
-                    // Turning horizontally: check the tile left/right in the current row
+                } 
+                // If the player is attempting to turn horizontally
+                else if (this.nextDirX != 0 &&
+                    (this.dirY > 0 && inRange(tileY, this.y, nextPosY) ||
+                     this.dirY < 0 && inRange(tileY, nextPosY, this.y))) {
+                    // Check the tile left/right in the current row
                     if (this.level[this.gridY] &&
                         this.level[this.gridY].charAt(this.gridX + this.nextDirX) === '#') {
                         attemptMoveForward();
@@ -184,7 +179,7 @@ class Player {
                         this.nextDirY = 0;
                         this.updateAnimation();
                         // Snap feet Y to tile center
-                        this.y = tileCenterY - 0.75 * this.size;
+                        this.y = tileY + inset;
                     }
                 } else {
                     attemptMoveForward();
@@ -218,7 +213,7 @@ class Player {
             programInfo: this.programInfo,
             buffers: this.buffers,
             x: this.flip ? this.x + this.size: this.x,
-            y: this.y,
+            y: this.y + this.spriteYOffset, // Visually offset the sprite up a bit for 3/4 perspective
             width: this.flip ? -this.size : this.size,
             height: this.size,
             texture: this.texture,
@@ -608,7 +603,7 @@ function main() {
                             } case ('S'): { // Spawn point
                                 // Add the player at the spawn point
                                 player.x = Math.round(x * tileSize + xOffset + HITBOX_INSET);
-                                player.y = Math.round(y * tileSize + yOffset - 0.75 * tileSize + HITBOX_INSET);
+                                player.y = Math.round(y * tileSize + yOffset + HITBOX_INSET);
                                 player.size = tileSize;
                                 player.setGrid(xOffset, yOffset, tileSize)
                                 levelScene.objects.push(player);
