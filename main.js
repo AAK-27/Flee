@@ -1,7 +1,12 @@
 import { initBuffers } from "./init-buffers.js";
 import { drawScene } from "./draw-scene.js";
 
+const DEBUG = true;
+
+const HITBOX_INSET = 2; // pixels inset from tile boundary for wall collision probes
+
 class Player {
+    // TODO: method to push nextDirection directly into dir if dir is empty
     constructor(gl, programInfo, buffers, x, y, size, spritePath, spriteInfo) {
         this.programInfo = programInfo;
         this.buffers = buffers;
@@ -9,17 +14,19 @@ class Player {
         this.y = y;
         this.dirX = 0;
         this.dirY = 0;
-        this.targetX = 0;
-        this.targetY = 0;
         this.nextDirX = 0;
         this.nextDirY = 0;
         this.size = size;
         this.texture = loadTexture(gl, spritePath);
         this.animations = {};
         this.spriteSize = spriteInfo.size;
+        this.flip = false;
+        this.spriteXOffset = 0;
+        this.spriteYOffset = 0;
         this.gridXOffset = 0;
         this.gridYOffset = 0;
         this.gridSize = this.size;
+        this.velocity = this.size; // Default speed of 1 tile per second
         this.updateGridCoords();
         this.solid = false;
         this.level = "";
@@ -39,118 +46,156 @@ class Player {
         this.gridXOffset = gridXOffset;
         this.gridYOffset = gridYOffset;
         this.gridSize = gridSize;
+        this.spriteYOffset = -gridSize * 0.75;
+        this.velocity = this.size*4; // Set speed to 4 tiles per second
     }
 
     updateGridCoords() {
-        this.gridX = Math.floor((this.x - this.gridXOffset) / this.gridSize);
-        this.gridY = Math.floor((this.y - this.gridYOffset + 0.5 * this.gridSize) / this.gridSize);
+        // Update the grid coordinates based on the center pixel coordinates of the player
+        this.gridX = Math.floor((this.x + this.size / 2 - this.gridXOffset) / this.gridSize);
+        this.gridY = Math.floor((this.y + this.size / 2 - this.gridYOffset) / this.gridSize);
     }
 
     getScreenCoordsFromGrid(gridX, gridY) {
-        return [gridX * this.gridSize + this.gridXOffset, (gridY - 0.5) * this.gridSize + this.gridYOffset];
+        // Returns the top-left screen position of a tile
+        return [gridX * this.gridSize + this.gridXOffset, gridY * this.gridSize + this.gridYOffset];
     }
 
-    tryMove() {
-        // If the next direction is the same direction then ignore the move
-        if (this.nextDirX === -this.dirX && this.nextDirX !== 0) return null;
-        if (this.nextDirY === -this.dirY && this.nextDirY !== 0) return null;
-
-        if (this.nextDirX != 0) { // If the next direction is in the x-axis...
-            // TODO: First find the row at which the player can turn (if they are halfway past a row they can't turn in that row anymore)
-            // let turnY = this.getScreenCoordsFromGrid(this.gridX, this.gridY)[1];
-            // if ((this.y - turnY) * this.dirY )
-            let gridNextTargetX = this.gridX;
-            const row = this.level[this.gridY];
-            // Check for walls in the current row in that direction
-            for (let x = this.gridX + this.nextDirX; x < row.length && x >= 0; x+=this.nextDirX) {
-                if (row.charAt(x) === '#') {
-                    // When a wall is found set the target position right before the wall
-                    gridNextTargetX = x - this.nextDirX;
-                    break;
-                }
-            }
-            if (gridNextTargetX == this.gridX) {
-                return null // If the target position is the current position do nothing
-            } else {
-                // Now gridNextTargetX and this.gridY are a valid target position,
-                // but we need to wait for the player to reach the intersection before turning.
-                // Since the turn is in the x-direction the player is moving in the y-direction
-                // so we need to make sure the player is aligned with the grid in the y-direction
-                const alignedY = this.getScreenCoordsFromGrid(this.gridX, this.gridY)[1];
-                if (this.y != alignedY) {
-                    this.targetX = this.x; // The x-coordinate is already aligned
-                    this.targetY = alignedY;
-                } else {
-                    // Set the new target position and direction
-                    [this.targetX, this.targetY] = this.getScreenCoordsFromGrid(gridNextTargetX, this.gridY);
-                    this.dirX = this.nextDirX;
-                    this.dirY = 0;
-                    this.nextDirX = 0;
-                    this.nextDirY = 0;
-                    return [[this.gridX, this.gridY], [this.nextDirX, this.nextDirY]];
-                }
-            }
-        } else if (this.nextDirY != 0) { // If the next direction is in the y-axis...
-            let gridNextTargetY = this.gridY;
-            // Check for walls in the current column in that direction
-            for (let y = this.gridY + this.nextDirY; y < this.level.length && y >= 0; y+=this.nextDirY) {
-                if (this.level[y].charAt(this.gridX) === '#') {
-                    // When a wall is found set the target position right before the wall
-                    gridNextTargetY = y - this.nextDirY;
-                    break;
-                }
-            }
-            if (gridNextTargetY == this.gridY) {
-                return null // If the target position is the current position do nothing
-            } else {
-                // Now this.gridX and gridNextTargetY are a valid target position,
-                // but we need to wait for the player to reach the intersection before turning.
-                // Since the turn is in the y-direction the player is moving in the x-direction
-                // so we need to make sure the player is aligned with the grid in the x-direction
-                const alignedX = this.getScreenCoordsFromGrid(this.gridX, this.gridY)[0];
-                if (this.x != alignedX) {
-                    this.targetX = alignedX;
-                    this.targetY = this.y; // The y-coordinate is already aligned
-                } else {
-                    // Set the new target position and direction
-                    [this.targetX, this.targetY] = this.getScreenCoordsFromGrid(this.gridX, gridNextTargetY);
-                    this.dirX = 0;
-                    this.dirY = this.nextDirY;
-                    this.nextDirX = 0;
-                    this.nextDirY = 0;
-                    return [[this.gridX, this.gridY], [this.nextDirX, this.nextDirY]];
-                }
-            }
+    updateAnimation() {
+        // Update the animation
+        if (this.dirX !== 0) {
+            this.animation = "run-side";
+            this.flip = this.dirX === -1;
         }
-    }
-
-    createDrawable(time) {
-        // TODO: Update the position based on velocity
-        this.x += this.dirX;
-        this.y += this.dirY;
-        // Check if the player passed the target position in this frame
-        // The target position is set at the beginning of a motion to a
-        // point where the player either turns or stops to avoid running 
-        // through walls
-        if (this.dirX > 0 && this.x > this.targetX ||
-            this.dirX < 0 && this.x < this.targetX ||
-            this.dirY > 0 && this.y > this.targetY ||
-            this.dirY < 0 && this.y < this.targetY) {
-            // If they passed the target position then snap them to the target position
-            this.x = this.targetX;
-            this.y = this.targetY;
-            // TODO: Set their velocity to the next direction if they choose to turn
-            // for now just resets directions to zero
-            this.dirX = 0;
-            this.dirY = 0;
-        }
-        // Update grid coordinates used to check for collisions
-        this.updateGridCoords();
-        this.tryMove();
-
-        if (this.dirX !== 0) this.animation = "run-side";
         else if (this.dirY === -1) this.animation = "run-backward";
         else if (this.dirY === 1) this.animation = "run-forward";
+    }
+
+    tryMove(deltaTime) {
+        this.dirUpdated = false; // Flag to only allow one direction change per frame
+        // If direction is empty and a next direction is quequed then update it to next direction
+        if (this.dirX === 0 && this.dirY === 0 && (this.nextDirX !== 0 || this.nextDirY !== 0)) {
+            this.dirX = this.nextDirX;
+            this.dirY = this.nextDirY;
+            // Reset the next direction
+            this.nextDirX = 0;
+            this.nextDirY = 0;
+            // Update the animation since the direction changed
+            this.updateAnimation();
+            // Set the flag to prevent a second direction change in the same frame
+            this.dirUpdated = true;
+        }
+
+        // If the level is loaded and the player is moving in some direction
+        if (this.level && (this.dirX != 0 || this.dirY != 0)) {
+            const inset = HITBOX_INSET;
+            // Update the position as a function of time
+            const nextPosX = this.x + this.dirX * this.velocity * deltaTime;
+            const nextPosY = this.y + this.dirY * this.velocity * deltaTime;
+
+            // Leading edge probe: the point just inside the tile boundary in the direction of travel
+            const probeX = this.dirX === 1  ? nextPosX + this.size - inset
+                         : this.dirX === -1 ? nextPosX + inset
+                         : nextPosX + this.size / 2;
+            const probeY = this.dirY === 1  ? nextPosY + this.size - inset
+                         : this.dirY === -1 ? nextPosY + inset
+                         : nextPosY + this.size / 2;
+            // Find the grid coordinates of the tile the player will enter
+            const nextGridX = Math.floor((probeX - this.gridXOffset) / this.gridSize);
+            const nextGridY = Math.floor((probeY - this.gridYOffset) / this.gridSize);
+
+            const attemptMoveForward = () => {
+                if (this.level[nextGridY] && this.level[nextGridY].charAt(nextGridX) === '#') {
+                    // If the player runs into a wall,
+                    // Snap to the tile boundary before the wall
+                    if (this.dirX === 1) {
+                        this.x = nextGridX * this.gridSize + this.gridXOffset - this.size + inset;
+                        this.animation = "idle-side";
+                    } else if (this.dirX === -1) {
+                        this.x = (nextGridX + 1) * this.gridSize + this.gridXOffset - inset;
+                        this.flip = true;
+                        this.animation = "idle-side";
+                    } else if (this.dirY === 1) {
+                        this.y = nextGridY * this.gridSize + this.gridYOffset - this.size + inset;
+                        this.animation = "idle-forward";
+                    } else if (this.dirY === -1) {
+                        this.y = (nextGridY + 1) * this.gridSize + this.gridYOffset - inset;
+                        this.animation = "idle-backward";
+                    }
+                    // Stop the player
+                    this.dirX = 0;
+                    this.dirY = 0;
+                } else {
+                    // Just move the player forward in the direction they are facing
+                    this.x = nextPosX;
+                    this.y = nextPosY;
+                }
+            };
+
+            // Prevent 180 degree turns
+            if (this.dirX != 0 && this.nextDirX === -this.dirX ||
+                this.dirY != 0 && this.nextDirY === -this.dirY) {
+                this.nextDirX = 0;
+                this.nextDirY = 0;
+            }
+
+            // Try to turn or else just move forward
+            if ((this.nextDirX != 0 || this.nextDirY != 0) && !this.dirUpdated) {
+                // The player can only turn on the current tile if it passes through the center of the tile in this frame
+                // Which is the same as if the player's top right corner passes the tile's top right corner
+                const tileX = this.gridX * this.gridSize + this.gridXOffset;
+                const tileY = this.gridY * this.gridSize + this.gridYOffset;
+
+                // If the player is attempting to turn vertically
+                if (this.nextDirY != 0 &&
+                    (this.dirX > 0 && inRange(tileX, this.x, nextPosX) ||
+                     this.dirX < 0 && inRange(tileX, nextPosX, this.x))) {
+                    // Check the tile above/below in the current column
+                    if (this.level[this.gridY + this.nextDirY] &&
+                        this.level[this.gridY + this.nextDirY].charAt(this.gridX) === '#') {
+                        attemptMoveForward();
+                    } else {
+                        this.dirX = this.nextDirX;
+                        this.dirY = this.nextDirY;
+                        this.nextDirX = 0;
+                        this.nextDirY = 0;
+                        this.updateAnimation();
+                        // Snap center X to tile center
+                        this.x = tileX + inset;
+                    }
+                } 
+                // If the player is attempting to turn horizontally
+                else if (this.nextDirX != 0 &&
+                    (this.dirY > 0 && inRange(tileY, this.y, nextPosY) ||
+                     this.dirY < 0 && inRange(tileY, nextPosY, this.y))) {
+                    // Check the tile left/right in the current row
+                    if (this.level[this.gridY] &&
+                        this.level[this.gridY].charAt(this.gridX + this.nextDirX) === '#') {
+                        attemptMoveForward();
+                    } else {
+                        this.dirX = this.nextDirX;
+                        this.dirY = this.nextDirY;
+                        this.nextDirX = 0;
+                        this.nextDirY = 0;
+                        this.updateAnimation();
+                        // Snap feet Y to tile center
+                        this.y = tileY + inset;
+                    }
+                } else {
+                    attemptMoveForward();
+                }
+            } else {
+                attemptMoveForward();
+            }
+        }
+
+        // Update grid coordinates used to check for collisions
+        this.updateGridCoords();
+    }
+
+    createDrawable(deltaTime, time) {
+        
+        this.tryMove(deltaTime);
 
         const animation = this.animations[this.animation];
         const frameIndex = Math.floor(time * animation.fps) % animation.numFrames;
@@ -167,9 +212,9 @@ class Player {
         return {
             programInfo: this.programInfo,
             buffers: this.buffers,
-            x: this.dirX == -1 ? this.x + this.size: this.x,
-            y: this.y,
-            width: this.dirX == -1 ? -this.size : this.size,
+            x: this.flip ? this.x + this.size: this.x,
+            y: this.y + this.spriteYOffset, // Visually offset the sprite up a bit for 3/4 perspective
+            width: this.flip ? -this.size : this.size,
             height: this.size,
             texture: this.texture,
             uTexScale: texScale,
@@ -360,7 +405,7 @@ function main() {
     // Add the title art
     const titleArt = loadTexture(gl, "resources/textures/title-art.png");
     titleScene.objects.push({
-        createDrawable(time) {
+        createDrawable() {
             const scale = Math.min(canvas.width / titleArt.width, canvas.height / titleArt.height);
             const xOffset = (canvas.width - (titleArt.width * scale)) / 2;
             const yOffset = (canvas.height - (titleArt.height * scale)) / 2; 
@@ -412,7 +457,7 @@ function main() {
     // Add the level selection background art
     const levelSelectionArt = loadTexture(gl, "resources/textures/title-art.png");
     levelSelectScene.objects.push({
-        createDrawable(time) {
+        createDrawable() {
             const scale = Math.min(canvas.width / levelSelectionArt.width, canvas.height / levelSelectionArt.height);
             const xOffset = (canvas.width - (levelSelectionArt.width * scale)) / 2;
             const yOffset = (canvas.height - (levelSelectionArt.height * scale)) / 2;
@@ -432,7 +477,7 @@ function main() {
     { // Add the level buttons to the scene in a 3x5 grid
         for (let i = 0; i < 15; i++){
             levelSelectScene.objects.push({
-                createDrawable(time) {
+                createDrawable() {
                     return {
                         programInfo: programInfo,
                         buffers: buffers,
@@ -507,7 +552,7 @@ function main() {
                 const xOffset = (canvas.width - tileSize * rows[0].length) / 2;
                 const yOffset = (canvas.height - tileSize * rows.length) / 2 + tileSize/2;
                 levelScene.gridXOffset = xOffset;
-                levelScene.gridYOffset = yOffset + 8;
+                levelScene.gridYOffset = yOffset;
                 levelScene.gridSize = tileSize;
                 for (let y = 0; y < rows.length; y++) {
                     for (let x = 0; x < rows[y].length; x++) {
@@ -518,7 +563,7 @@ function main() {
                                     gridX: x,
                                     gridY: y,
                                     solid: true,
-                                    createDrawable(time) {
+                                    createDrawable() {
                                         return {
                                             programInfo: programInfo,
                                             buffers: buffers,
@@ -539,7 +584,7 @@ function main() {
                                     gridX: x,
                                     gridY: y,
                                     solid: false,
-                                    createDrawable(time) {
+                                    createDrawable() {
                                         return {
                                             programInfo: programInfo,
                                             buffers: buffers,
@@ -557,17 +602,35 @@ function main() {
                                 break;
                             } case ('S'): { // Spawn point
                                 // Add the player at the spawn point
-                                player.x = x * tileSize + xOffset;
-                                player.y = y * tileSize + yOffset + 8 * tileSize / 32 - tileSize;
+                                player.x = Math.round(x * tileSize + xOffset + HITBOX_INSET);
+                                player.y = Math.round(y * tileSize + yOffset + HITBOX_INSET);
                                 player.size = tileSize;
                                 player.setGrid(xOffset, yOffset, tileSize)
                                 levelScene.objects.push(player);
+                                // Add a debug box to show player grid position
+                                levelScene.objects.push({
+                                    createDrawable() {
+                                        const [x, y] = player.getScreenCoordsFromGrid(player.gridX, player.gridY)
+                                        return {
+                                            programInfo: programInfo,
+                                            buffers: buffers,
+                                            x: x,
+                                            y: y,
+                                            width: tileSize,
+                                            height: tileSize,
+                                            color: [ 0.5, 0.5, 0, 0.5 ],
+                                            radius: 0,
+                                            rectSize: [tileSize, tileSize],
+                                            layer: 3,
+                                        }
+                                    }
+                                })
                                 // Add the floor tile under the player
                                 levelScene.objects.push({
                                     gridX: x,
                                     gridY: y,
                                     solid: false,
-                                    createDrawable(time) {
+                                    createDrawable() {
                                         return {
                                             programInfo: programInfo,
                                             buffers: buffers,
@@ -589,7 +652,7 @@ function main() {
                                     gridX: x,
                                     gridY: y,
                                     solid: false,
-                                    createDrawable(time) {
+                                    createDrawable() {
                                         return {
                                             programInfo: programInfo,
                                             buffers: buffers,
@@ -611,7 +674,7 @@ function main() {
                                     gridX: x,
                                     gridY: y,
                                     solid: false,
-                                    createDrawable(time) {
+                                    createDrawable() {
                                         return {
                                             programInfo: programInfo,
                                             buffers: buffers,
@@ -631,6 +694,46 @@ function main() {
                         }
                     }
                 }
+                if (DEBUG) {
+                    // Draw grid lines for debugging
+                    // Horizontal lines
+                    for (let row = 0; row <= rows.length; row++) {
+                        levelScene.objects.push({
+                            createDrawable() {
+                                return {
+                                    programInfo, buffers,
+                                    x: xOffset,
+                                    y: row * tileSize + yOffset,
+                                    width: rows[0].length * tileSize,
+                                    height: 1,
+                                    color: [1, 0, 0, 1],
+                                    radius: 0,
+                                    rectSize: [rows[0].length * tileSize, 1],
+                                    layer: 3,
+                                };
+                            }
+                        });
+                    }
+                    // Vertical lines
+                    for (let col = 0; col <= rows[0].length; col++) {
+                        levelScene.objects.push({
+                            createDrawable() {
+                                return {
+                                    programInfo, buffers,
+                                    x: col * tileSize + xOffset,
+                                    y: yOffset,
+                                    width: 1,
+                                    height: rows.length * tileSize,
+                                    color: [1, 0, 0, 1],
+                                    radius: 0,
+                                    rectSize: [1, rows.length * tileSize],
+                                    layer: 3,
+                                };
+                            }
+                        });
+                    }
+                }
+                
                 player.level = levelScene.level;
             })
             .catch(error => {
@@ -659,7 +762,7 @@ function main() {
             scene = scene.handleEvent(event);
         }
 
-        drawScene(gl, canvas, scene, now);
+        drawScene(gl, canvas, scene, deltaTime, now);
 
         requestAnimationFrame(render);
     }
@@ -931,4 +1034,8 @@ function matchWallSprite(neighborTiles) {
             // Standalone column
             return [[1, 1], false];
     }
+}
+
+function inRange(x, a, b) {
+    return x >= a && x <= b;
 }
