@@ -1,12 +1,11 @@
 import { initBuffers } from "./init-buffers.js";
 import { drawScene } from "./draw-scene.js";
 
-const DEBUG = true;
+const DEBUG = false;
 
 const HITBOX_INSET = 2; // pixels inset from tile boundary for wall collision probes
 
 class Player {
-    // TODO: method to push nextDirection directly into dir if dir is empty
     constructor(gl, programInfo, buffers, x, y, size, spritePath, spriteInfo) {
         this.programInfo = programInfo;
         this.buffers = buffers;
@@ -16,6 +15,7 @@ class Player {
         this.dirY = 0;
         this.nextDirX = 0;
         this.nextDirY = 0;
+        this.dirUpdated = false; // Flag to only allow one direction change per frame
         this.size = size;
         this.texture = loadTexture(gl, spritePath);
         this.animations = {};
@@ -47,7 +47,26 @@ class Player {
         this.gridYOffset = gridYOffset;
         this.gridSize = gridSize;
         this.spriteYOffset = -gridSize * 0.75;
-        this.velocity = this.size*4; // Set speed to 4 tiles per second
+        this.velocity = this.size*5; // Set speed to 4 tiles per second
+    }
+
+    setDir(x, y) {
+        if (this.dirX == 0 && this.dirY == 0) {
+            if (this.nextDirX !== 0 || this.nextDirY !== 0) {
+                this.dirX = this.nextDirX;
+                this.dirY = this.nextDirY;
+                this.nextDirX = x;
+                this.nextDirY = y;
+            } else {
+                this.dirX = x;
+                this.dirY = y;
+            }
+            this.dirUpdated = true;
+            this.updateAnimation();
+        } else {
+            this.nextDirX = x;
+            this.nextDirY = y;
+        }
     }
 
     updateGridCoords() {
@@ -72,7 +91,6 @@ class Player {
     }
 
     tryMove(deltaTime) {
-        this.dirUpdated = false; // Flag to only allow one direction change per frame
         // If direction is empty and a next direction is quequed then update it to next direction
         if (this.dirX === 0 && this.dirY === 0 && (this.nextDirX !== 0 || this.nextDirY !== 0)) {
             this.dirX = this.nextDirX;
@@ -191,6 +209,7 @@ class Player {
 
         // Update grid coordinates used to check for collisions
         this.updateGridCoords();
+        this.dirUpdated = false; // Reset the direction update flag for the next frame
     }
 
     createDrawable(deltaTime, time) {
@@ -503,20 +522,16 @@ function main() {
             if (event.type == "keyDown") {
                 switch (event.key) {
                     case 'ArrowRight':
-                        player.nextDirX = 1;
-                        player.nextDirY = 0;
+                        player.setDir(1, 0);
                         break;
                     case 'ArrowLeft':
-                        player.nextDirX = -1;
-                        player.nextDirY = 0;
+                        player.setDir(-1, 0);
                         break;
                     case 'ArrowUp':
-                        player.nextDirX = 0;
-                        player.nextDirY = -1;
+                        player.setDir(0, -1);
                         break;
                     case 'ArrowDown':
-                        player.nextDirX = 0;
-                        player.nextDirY = 1;
+                        player.setDir(0, 1);
                         break;
                     case 'Escape':
                         return levelSelectScene;
@@ -608,23 +623,25 @@ function main() {
                                 player.setGrid(xOffset, yOffset, tileSize)
                                 levelScene.objects.push(player);
                                 // Add a debug box to show player grid position
-                                levelScene.objects.push({
-                                    createDrawable() {
-                                        const [x, y] = player.getScreenCoordsFromGrid(player.gridX, player.gridY)
-                                        return {
-                                            programInfo: programInfo,
-                                            buffers: buffers,
-                                            x: x,
-                                            y: y,
-                                            width: tileSize,
-                                            height: tileSize,
-                                            color: [ 0.5, 0.5, 0, 0.5 ],
-                                            radius: 0,
-                                            rectSize: [tileSize, tileSize],
-                                            layer: 3,
+                                if (DEBUG) {
+                                    levelScene.objects.push({
+                                        createDrawable() {
+                                            const [x, y] = player.getScreenCoordsFromGrid(player.gridX, player.gridY)
+                                            return {
+                                                programInfo: programInfo,
+                                                buffers: buffers,
+                                                x: x,
+                                                y: y,
+                                                width: tileSize,
+                                                height: tileSize,
+                                                color: [ 0.5, 0.5, 0, 0.5 ],
+                                                radius: 0,
+                                                rectSize: [tileSize, tileSize],
+                                                layer: 3,
+                                            }
                                         }
-                                    }
-                                })
+                                    });
+                                }
                                 // Add the floor tile under the player
                                 levelScene.objects.push({
                                     gridX: x,
